@@ -1,6 +1,6 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const axios = require('axios');
+const request = require('request');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const messageHandler = require('./messageHandler.js'); // Giả sử bạn có module này
@@ -80,7 +80,7 @@ app.post('/webhook', async (req, res) => {
                     }
 
                     // Send the response back
-                    await sendMessage(senderId, response);
+                    sendMessage(senderId, response);
                 }
             }
         }
@@ -88,36 +88,53 @@ app.post('/webhook', async (req, res) => {
     res.status(200).send('EVENT_RECEIVED');
 });
 
-// Send message back to Facebook
-async function sendMessage(recipientId, messageText) {
-    const url = `https://graph.facebook.com/v21.0/me/messages`;
-    const params = {
-        access_token: PAGE_ACCESS_TOKEN,
-    };
+// Send message back to Facebook using `request`
+function sendMessage(recipientId, messageText) {
+    if (!messageText) {
+        logger.error('Error: Message text is required.');
+        return;
+    }
+
     const payload = {
         recipient: { id: recipientId },
         message: { text: messageText },
     };
 
-    try {
-        await axios.post(url, payload, { params });
-        logger.info(`Message sent successfully to user ${recipientId}`);
-    } catch (error) {
-        logger.error('Failed to send message:', error.response?.data || error.message);
-    }
+    request({
+        url: 'https://graph.facebook.com/v13.0/me/messages',
+        qs: { access_token: PAGE_ACCESS_TOKEN },
+        method: 'POST',
+        json: payload,
+    }, (error, response, body) => {
+        if (error) {
+            logger.error('Error sending message:', error);
+        } else if (response.body.error) {
+            logger.error('Error response:', response.body.error);
+        } else {
+            logger.info(`Message sent successfully to user ${recipientId}:`, body);
+        }
+    });
 }
 
 // Test page access token validity
-(async function checkPageAccessToken() {
+(function checkPageAccessToken() {
     const url = `https://graph.facebook.com/me`;
-    try {
-        const response = await axios.get(url, {
-            params: { access_token: PAGE_ACCESS_TOKEN },
-        });
-        logger.info('Page access token is valid:', response.data);
-    } catch (error) {
-        logger.error('Invalid page access token:', error.response?.data || error.message);
-    }
+    request({
+        url,
+        qs: { access_token: PAGE_ACCESS_TOKEN },
+        method: 'GET',
+    }, (error, response, body) => {
+        if (error) {
+            logger.error('Error validating page access token:', error);
+        } else {
+            const data = JSON.parse(body);
+            if (data.error) {
+                logger.error('Invalid page access token:', data.error);
+            } else {
+                logger.info('Page access token is valid:', data);
+            }
+        }
+    });
 })();
 
 // Start the server
